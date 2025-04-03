@@ -1,0 +1,15 @@
+// Babel helps developers use modern JS features while ensuring compatibility with older environments
+{
+  "presets": ["@babel/preset-env"],
+  "plugins": [
+    [
+      "module-resolver",
+      {
+        "root": ["./src"],
+        "alias": {
+          "~": "./src" // Helps node recognize alias "~/*"
+        }
+      }
+    ]
+  ]
+}
