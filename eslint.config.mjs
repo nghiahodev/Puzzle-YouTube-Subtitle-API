@@ -16,6 +16,8 @@ export default [
     rules: {
       ...pluginJs.configs.recommended.rules,
       'no-unused-vars': 'warn',
+      'no-empty': 'warn',
+      'no-console': 'warn',
     },
   },
 ]

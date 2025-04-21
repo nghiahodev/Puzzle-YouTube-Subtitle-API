@@ -1,11 +1,15 @@
-const handleError = (err, req, res) => {
+import _ from 'lodash'
+
+const handleError = (err, req, res, next) => {
   let message = err.message
   try {
-    if (typeof message === 'string') {
+    if (_.isString(message)) {
       message = JSON.parse(message)
     }
-  } catch {
-    console.error('Failed to parse error message:', error)
+  } catch {}
+
+  if (_.isEmpty(message)) {
+    message = 'Có lỗi xảy ra, vui lòng thử lại!'
   }
 
   const error = {
@@ -15,12 +19,11 @@ const handleError = (err, req, res) => {
 
   const httpCode = err.httpCode || 500
 
-  // Log additional ìnfomation to facilitate error detection and troubeshooting
-  console.log('Error: ', err.stack)
+  console.log(err.stack)
   console.log('Request: ', req.method, req.originalUrl, httpCode)
-  console.log('Body: ', req.body)
-  console.log('Params: ', req.params)
-  console.log('Query: ', req.query)
+  if (!_.isEmpty(req.body)) console.log('Body: ', req.body)
+  if (!_.isEmpty(req.params)) console.log('Params: ', req.params)
+  if (!_.isEmpty(req.query)) console.log('Query: ', req.query)
 
   return res.status(httpCode).json(error)
 }
