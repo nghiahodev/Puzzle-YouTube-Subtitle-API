@@ -9,23 +9,24 @@ const handleError = (err, req, res, next) => {
   } catch {}
 
   if (_.isEmpty(message)) {
-    message = 'Có lỗi xảy ra, vui lòng thử lại!'
+    message = 'Lỗi server, vui lòng thử lại sau'
   }
 
-  const error = {
+  const resError = {
     status: 'ERROR',
     message,
+    details: err.details || '',
   }
 
   const httpCode = err.httpCode || 500
 
-  console.log(err.stack)
+  console.log(resError)
   console.log('Request: ', req.method, req.originalUrl, httpCode)
   if (!_.isEmpty(req.body)) console.log('Body: ', req.body)
   if (!_.isEmpty(req.params)) console.log('Params: ', req.params)
   if (!_.isEmpty(req.query)) console.log('Query: ', req.query)
 
-  return res.status(httpCode).json(error)
+  return res.status(httpCode).json(resError)
 }
 
 export default handleError
