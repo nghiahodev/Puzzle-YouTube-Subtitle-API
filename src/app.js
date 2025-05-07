@@ -5,13 +5,20 @@ import connectDB from './config/connectDB'
 import router from './appRoutes'
 import handleError from './middlewares/handleError'
 import env from './config/env'
+import cookieParser from 'cookie-parser'
 
 const startServer = () => {
   const app = express()
 
-  app.use(cors())
+  app.use(
+    cors({
+      origin: 'http://localhost:5174',
+      credentials: true,
+    }),
+  )
   app.use(express.json())
   app.use(express.urlencoded({ extended: true }))
+  app.use(cookieParser())
   app.use(router)
   app.use(handleError)
 

@@ -3,9 +3,9 @@ import { OAuth2Client } from 'google-auth-library'
 import jwt from 'jsonwebtoken'
 import env from '~/config/env'
 import userModel from '~/models/user.model'
-import MyError from '~/utils/MyError'
+import MyError from '~/common/MyError'
 
-const googleLogin = async ({ credential }) => {
+const googleOauth = async ({ credential }) => {
   const client = new OAuth2Client(env.GOOGLE_CLIENT_ID)
   const ticket = await client.verifyIdToken({
     idToken: credential,
@@ -19,26 +19,25 @@ const googleLogin = async ({ credential }) => {
   let user = await userModel.findOne({ googleId: sub })
 
   if (!user) {
-    user = new userModel({
+    user = await userModel.create({
       googleId: sub,
       email,
       name,
       picture,
-      role: email === env.ADMIN ? 'admin' : 'user',
+      role: email === env.ADMIN ? 'admin' : 'member',
     })
-    await user.save()
   }
 
-  const expiresIn = '30d'
-  const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000
-
-  const token = jwt.sign({ id: user._id }, env.TOKEN_SECRET, {
-    expiresIn,
+  const accessToken = jwt.sign({ id: user.id }, env.ACCESS_TOKEN_SECRET, {
+    expiresIn: '15m',
+  })
+  const refreshToken = jwt.sign({ id: user.id }, env.REFRESH_TOKEN_SECRET, {
+    expiresIn: '1d',
   })
 
   return {
-    token,
-    expiresAt,
+    accessToken,
+    refreshToken,
     user: {
       id: user._id.toString(),
       name: user.name,
@@ -48,7 +47,7 @@ const googleLogin = async ({ credential }) => {
   }
 }
 
-const signup = async ({ name, username, password }) => {
+const register = async ({ name, username, password }) => {
   const isExist = await userModel.findOne({ username })
   if (isExist) throw new MyError('Tên đăng nhập đã tồn tại', 409)
   const hashedPassword = await bcrypt.hash(password, 10)
@@ -68,16 +67,16 @@ const login = async ({ username, password }) => {
   const isMatch = await bcrypt.compare(password, user.password)
   if (!isMatch) throw new MyError('Sai mật khẩu', 401)
 
-  const expiresIn = '30d'
-  const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000
-
-  const token = jwt.sign({ id: user._id }, env.TOKEN_SECRET, {
-    expiresIn,
+  const accessToken = jwt.sign({ id: user.id }, env.ACCESS_TOKEN_SECRET, {
+    expiresIn: '15m',
+  })
+  const refreshToken = jwt.sign({ id: user.id }, env.REFRESH_TOKEN_SECRET, {
+    expiresIn: '1d',
   })
 
   return {
-    token,
-    expiresAt,
+    accessToken,
+    refreshToken,
     user: {
       id: user._id.toString(),
       name: user.name,
@@ -87,9 +86,29 @@ const login = async ({ username, password }) => {
   }
 }
 
+const refreshToken = async (refreshToken) => {
+  if (!refreshToken)
+    throw new MyError('Bạn chưa đăng nhập', 401, 'Không có refresh token')
+
+  let decoded
+  try {
+    decoded = jwt.verify(refreshToken, env.REFRESH_TOKEN_SECRET)
+  } catch (err) {
+    throw new MyError('Hết phiên đăng nhập', 403, 'Refresh token đã hết hạn')
+  }
+
+  const user = await userModel.findById(decoded.id)
+  if (!user) throw new MyError('Tài khoản không tồn tại', 404)
+
+  return jwt.sign({ id: user._id }, env.ACCESS_TOKEN_SECRET, {
+    expiresIn: '15m',
+  })
+}
+
 const authService = {
-  googleLogin,
-  signup,
+  googleOauth,
+  register,
   login,
+  refreshToken,
 }
 export default authService
