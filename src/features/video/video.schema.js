@@ -54,10 +54,10 @@ const addVideo = Joi.object({
       }
     })
     .messages({
-      'any.required': 'URL video là bắt buộc',
-      'string.empty': 'URL video không được để trống',
+      'any.required': 'youtubeUrl là bắt buộc',
+      'string.empty': 'youtubeUrl không được để trống',
       'string.uri': 'Phải là một URL hợp lệ',
-      'any.invalid': 'URL phải là liên kết hợp lệ đến một video YouTube',
+      'any.invalid': 'youtubeUrl phải là liên kết hợp lệ đến một video YouTube',
     }),
 })
 

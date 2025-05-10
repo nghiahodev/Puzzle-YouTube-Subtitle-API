@@ -3,16 +3,29 @@ import videoUtil from './video.util'
 import MyError from '~/common/MyError'
 import { isEmpty } from 'lodash'
 import axios from 'axios'
-import { translate } from '@vitalets/google-translate-api'
 import { spawn } from 'child_process'
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import env from '~/config/env'
 
-const googleTranslate = async (textToTranslate) => {
+const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY)
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+
+const geminiTranslate = async (textToTranslate) => {
+  const prompt = `Translate the following into Vietnamese. Do not change or remove the "§" symbols. Only translate the text between them:\n\n${textToTranslate}`
   try {
-    const { text } = await translate(textToTranslate, { to: 'vi' })
-    return text
+    const { response } = await model.generateContent(prompt)
+    return response.text().trim()
   } catch (error) {
-    console.error(error)
-    throw new MyError(null, null, 'Google translate không hoạt động')
+    throw new MyError(null, null, 'Gemini không hoạt động')
+  }
+}
+const geminiSummary = async (textToSummary) => {
+  const prompt = `Summarize the following text into a short paragraph in Vietnamese (no more than 100 words) that explains the content. Insert important English words by enclosing them in double quotes ("") without explaining them:\n\n${textToSummary}`
+  try {
+    const { response } = await model.generateContent(prompt)
+    return response.text().trim()
+  } catch (error) {
+    throw new MyError(null, null, 'Gemini không hoạt động')
   }
 }
 
@@ -66,7 +79,7 @@ const ytdlpExec = (youtubeId, timeoutMs = 10000) => {
 
 const fetchVideo = async (youtubeId) => {
   try {
-    return await ytdlpExec(youtubeId, 10000)
+    return await ytdlpExec(youtubeId, 20000)
   } catch (error) {
     if (error.code === 'TIMEOUT')
       throw new MyError(
@@ -112,57 +125,116 @@ const addVideo = async ({ youtubeUrl }, user) => {
     )
   }
 
-  const json3Url = enSubs.find((sub) => sub.ext === 'json3')?.url
-
-  if (!json3Url)
+  // handle with vttUrl
+  const vttUrl = enSubs.find((sub) => sub.ext === 'vtt')?.url
+  if (!vttUrl)
     throw new MyError(
-      'Không thể lấy phụ đề từ video, vui lòng chọn video khác',
+      'Video đang có lượt truy cập cao, vui lòng thử lại sau',
       400,
       'Không tìm thấy json3 URL',
     )
-
-  const { data } = await axios.get(json3Url)
-  const events = data?.events
-  if (isEmpty(events)) {
+  const { data } = await axios.get(vttUrl)
+  if (isEmpty(data)) {
     throw new MyError(
-      'Không thể lấy phụ đề từ video, vui lòng chọn video khác',
+      'Video đang có lượt truy cập cao, vui lòng thử lại sau',
       400,
-      'Không tìm thấy phụ đề',
+      'Dữ liệu phụ đề trống',
     )
   }
 
-  let textToTranslate = ''
-  for (let i = 0; i < events.length; i++) {
-    const event = events[i]
-    if (isEmpty(event.segs) || isEmpty(event.segs[0]?.utf8)) continue
+  const validTexts = []
+  const lines = data.split('\n')
+  let start = 0
+  let end = 0
+  let collectingText = false
+  let bufferText = ''
 
-    const text = event.segs[0].utf8
-      .replace(/\n/g, ' ') // Remove line breaks
-      .replace(/(\(.*?\)|\[.*?\]|\*\*.*?\*\*)/g, '') // Remove annotations or formatting (e.g. bold, parentheses, brackets)
-      .trim() // Trim leading and trailing whitespace
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
 
-    if (/^[^a-zA-Z0-9]*$/.test(text)) {
-      event.invalid = true
+    if (line.includes('-->')) {
+      const times = line.split('-->')
+      const startStr = times[0].trim()
+      const endStr = times[1].trim().split(' ')[0]
+
+      start = +videoUtil.parseTime(startStr).toFixed(3)
+      end = +videoUtil.parseTime(endStr).toFixed(3)
+      collectingText = true
+      bufferText = ''
       continue
     }
 
-    const start = +(event.tStartMs / 1000).toFixed(3)
-    const duration = +(event.dDurationMs / 1000).toFixed(3)
-    const end = +(start + duration).toFixed(3)
+    if (collectingText) {
+      if (line === '') {
+        const text = bufferText.replace(/(\(.*?\)|\[.*?\]|\*\*.*?\*\*)/g, '')
 
-    let segment = {}
+        if (!/^[^a-zA-Z0-9]*$/.test(text)) {
+          videoData.segments.push({ start, end, text })
+          validTexts.push(text)
+        }
 
-    segment.start = start
-    segment.text = text
-    segment.end = end
-    videoData.segments.push(segment)
-    textToTranslate += text + (i < events.length - 1 ? '\n' : '')
+        collectingText = false
+        bufferText = ''
+      } else {
+        bufferText += (bufferText ? ' ' : '') + line
+      }
+    }
   }
 
-  const translatedText = await googleTranslate(textToTranslate)
-  const translatedTextSplit = translatedText.split('\n')
-  if (translatedTextSplit.length !== videoData.segments.length)
-    throw new MyError(null, null, 'Google translate error')
+  // handle with json3
+  // const json3Url = enSubs.find((sub) => sub.ext === 'json3')?.url
+
+  // if (!json3Url)
+  //   throw new MyError(
+  //     'Không thể lấy phụ đề từ video, vui lòng chọn video khác',
+  //     400,
+  //     'Không tìm thấy json3 URL',
+  //   )
+
+  // const { data } = await axios.get(json3Url)
+  // const events = data?.events
+  // if (isEmpty(events)) {
+  //   throw new MyError(
+  //     'Không thể lấy phụ đề từ video, vui lòng chọn video khác',
+  //     400,
+  //     'Không tìm thấy phụ đề',
+  //   )
+  // }
+
+  // const validTexts = []
+  // for (let i = 0; i < events.length; i++) {
+  //   const event = events[i]
+  //   if (isEmpty(event.segs) || isEmpty(event.segs[0]?.utf8)) continue
+
+  //   const text = event.segs[0].utf8
+  //     .replace(/\n/g, ' ') // Remove line breaks
+  //     .replace(/(\(.*?\)|\[.*?\]|\*\*.*?\*\*)/g, '') // Remove annotations or formatting (e.g. bold, parentheses, brackets)
+  //     .trim() // Trim leading and trailing whitespace
+
+  //   if (/^[^a-zA-Z0-9]*$/.test(text)) {
+  //     event.invalid = true
+  //     continue
+  //   }
+
+  //   const start = +(event.tStartMs / 1000).toFixed(3)
+  //   const duration = +(event.dDurationMs / 1000).toFixed(3)
+  //   const end = +(start + duration).toFixed(3)
+
+  //   let segment = {}
+
+  //   segment.start = start
+  //   segment.text = text
+  //   segment.end = end
+  //   videoData.segments.push(segment)
+  //   validTexts.push(text)
+  // }
+
+  const translatedText = await geminiTranslate(validTexts.join('§'))
+  const translatedTextSplit = translatedText.split('§')
+  if (translatedTextSplit.length !== validTexts.length)
+    throw new MyError(null, null, 'Gemini error')
+  const summary = await geminiSummary(validTexts.join(' '))
+  videoData.summary = summary
 
   translatedTextSplit.forEach((text, index) => {
     videoData.segments[index].translate = text

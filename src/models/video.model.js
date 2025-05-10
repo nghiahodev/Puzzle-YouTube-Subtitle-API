@@ -38,6 +38,11 @@ const videoSchema = new Schema(
       required: true,
       trim: true,
     },
+    summary: {
+      type: Schema.Types.Mixed,
+      required: true,
+      trim: true,
+    },
     segments: {
       type: [
         {

@@ -22,7 +22,7 @@
     "prettier": "^3.5.3"
   },
   "dependencies": {
-    "@vitalets/google-translate-api": "^9.2.1",
+    "@google/generative-ai": "^0.24.1",
     "axios": "^1.8.4",
     "bcrypt": "^5.1.1",
     "cookie-parser": "^1.4.7",
