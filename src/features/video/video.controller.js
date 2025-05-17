@@ -17,9 +17,18 @@ const getVideo = async (req, res, next) => {
     next(error)
   }
 }
+const editSegment = async (req, res, next) => {
+  try {
+    const result = await videoService.editSegment(req.params, req.body)
+    return res.status(201).json(result)
+  } catch (error) {
+    next(error)
+  }
+}
 
 const videoController = {
   addVideo,
   getVideo,
+  editSegment,
 }
 export default videoController

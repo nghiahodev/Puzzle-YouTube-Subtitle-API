@@ -1,69 +1,49 @@
 import Joi from 'joi'
 import mongoose from 'mongoose'
 
+const objectIdSchema = () =>
+  Joi.string().custom((value, helpers) => {
+    if (!mongoose.Types.ObjectId.isValid(value)) {
+      return helpers.error('any.invalid')
+    }
+    return value
+  })
+
 const getVideo = Joi.object({
-  videoId: Joi.string()
-    .required()
-    .custom((value, helpers) => {
-      if (!mongoose.Types.ObjectId.isValid(value)) {
-        return helpers.error('any.invalid')
-      }
-      return value
-    })
-    .messages({
-      'string.empty': 'ID video không được để trống.',
-      'any.required': 'ID video là bắt buộc.',
-      'any.invalid': 'ID video không hợp lệ.',
-    }),
+  videoId: objectIdSchema,
 })
 
 const addVideo = Joi.object({
-  youtubeUrl: Joi.string()
-    .uri()
-    .required()
-    .custom((value, helpers) => {
-      try {
-        const url = new URL(value)
-
-        const isYoutubeHost =
-          url.hostname === 'www.youtube.com' ||
-          url.hostname === 'youtube.com' ||
-          url.hostname === 'youtu.be'
-
-        if (!isYoutubeHost) {
-          return helpers.error('any.invalid')
-        }
-
-        let youtubeId = ''
-
-        if (url.hostname === 'youtu.be') {
-          youtubeId = url.pathname.slice(1)
-        } else {
-          youtubeId = url.searchParams.get('v') || ''
-        }
-
-        const isValidYoutubeId = /^[\w-]{11}$/.test(youtubeId)
-
-        if (!isValidYoutubeId) {
-          return helpers.error('any.invalid')
-        }
-
-        return value
-      } catch (err) {
-        return helpers.error('any.invalid')
-      }
-    })
-    .messages({
-      'any.required': 'youtubeUrl là bắt buộc',
-      'string.empty': 'youtubeUrl không được để trống',
-      'string.uri': 'Phải là một URL hợp lệ',
-      'any.invalid': 'youtubeUrl phải là liên kết hợp lệ đến một video YouTube',
-    }),
+  youtubeId: Joi.string()
+    .pattern(/^[\w-]{11}$/)
+    .required(),
 })
+
+const editSegmentParams = Joi.object({
+  videoId: objectIdSchema,
+  segmentId: objectIdSchema,
+})
+
+const editSegmentBody = Joi.object({
+  start: Joi.number().min(0).required(),
+  end: Joi.number().min(0).required(),
+  text: Joi.string().trim().required(),
+  translate: Joi.string().trim().required(),
+  note: Joi.object().optional(),
+})
+  .custom((value, helpers) => {
+    if (value.start > value.end) {
+      return helpers.message('The start time must be earlier than the end time')
+    }
+    return value
+  })
+  .prefs({ stripUnknown: true })
 
 const videoSchema = {
   getVideo,
   addVideo,
+  editSegmentParams,
+  editSegmentBody,
 }
 
 export default videoSchema

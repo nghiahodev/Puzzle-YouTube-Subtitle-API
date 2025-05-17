@@ -39,7 +39,7 @@ const videoSchema = new Schema(
       trim: true,
     },
     summary: {
-      type: Schema.Types.Mixed,
+      type: Object,
       required: true,
       trim: true,
     },
@@ -63,6 +63,10 @@ const videoSchema = new Schema(
           },
           translate: {
             type: String,
+            trim: true,
+          },
+          note: {
+            type: Object,
             trim: true,
           },
         },

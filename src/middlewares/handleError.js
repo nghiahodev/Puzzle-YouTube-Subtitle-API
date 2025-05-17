@@ -1,32 +1,31 @@
 import _ from 'lodash'
+import errors from '~/common/errors'
 
 const handleError = (err, req, res, next) => {
-  let message = err.message
-  try {
-    if (_.isString(message)) {
-      message = JSON.parse(message)
-    }
-  } catch {}
-
-  if (_.isEmpty(message)) {
-    message = 'Lỗi server, vui lòng thử lại sau'
-  }
-
-  const resError = {
-    status: 'ERROR',
+  const {
+    status = errors.SERVER_ERROR.status,
+    code = errors.SERVER_ERROR.code,
     message,
-    details: err.details || '',
+    details,
+  } = err
+
+  const customError = {
+    status,
+    code,
+    message,
+    details,
   }
 
-  const httpCode = err.httpCode || 500
+  const cleanedError = _.omitBy(customError, _.isUndefined)
 
-  console.log(resError)
-  console.log('Request: ', req.method, req.originalUrl, httpCode)
+  console.log('\n\nError:', cleanedError)
+  console.log('Request: ', req.method, req.originalUrl, status)
   if (!_.isEmpty(req.body)) console.log('Body: ', req.body)
   if (!_.isEmpty(req.params)) console.log('Params: ', req.params)
   if (!_.isEmpty(req.query)) console.log('Query: ', req.query)
+  console.log(err.stack)
 
-  return res.status(httpCode).json(resError)
+  return res.status(status).json(cleanedError)
 }
 
 export default handleError

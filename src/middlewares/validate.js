@@ -1,3 +1,6 @@
+import errors from '~/common/errors'
+import HttpError from '~/common/utils/HttpError'
+
 const validateSchema = (schema, data) => {
   if (!schema) return []
   const { error } = schema.validate(data, { abortEarly: false })
@@ -13,15 +16,11 @@ const validate = (schemas) => {
     ]
 
     if (validationErrors.length > 0) {
-      return res.status(400).json({
-        status: 'ERROR',
-        message: 'Dữ liệu đầu vào không hợp lệ',
-        details: validationErrors,
-      })
+      throw new HttpError(errors.VALIDATION_FAILED, validationErrors)
     }
-
     next()
   }
 }
 
 export default validate
+2

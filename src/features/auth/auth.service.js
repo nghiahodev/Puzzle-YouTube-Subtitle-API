@@ -1,17 +1,26 @@
 import bcrypt from 'bcrypt'
 import { OAuth2Client } from 'google-auth-library'
 import jwt from 'jsonwebtoken'
+import errors from '~/common/errors'
 import env from '~/config/env'
 import userModel from '~/models/user.model'
-import MyError from '~/common/MyError'
+import HttpError from '~/common/utils/HttpError'
+import authErrors from './auth.error'
 
 const googleOauth = async ({ credential }) => {
   const client = new OAuth2Client(env.GOOGLE_CLIENT_ID)
-  const ticket = await client.verifyIdToken({
-    idToken: credential,
-    audience: process.env.GOOGLE_CLIENT_ID,
-  })
-  if (!ticket) throw new MyError('Không thể xác thực tài khoản Google', 401)
+  let ticket
+
+  try {
+    ticket = await client.verifyIdToken({
+      idToken: credential,
+      audience: env.GOOGLE_CLIENT_ID,
+    })
+  } catch (error) {
+    throw new HttpError(errors.SERVER_ERROR)
+  }
+
+  if (!ticket) throw new HttpError(authErrors.GOOGLE_AUTH_FAILED)
 
   const payload = ticket.getPayload()
   const { sub, email, name, picture } = payload
@@ -39,7 +48,7 @@ const googleOauth = async ({ credential }) => {
     accessToken,
     refreshToken,
     user: {
-      id: user._id.toString(),
+      _id: user._id,
       name: user.name,
       picture: user.picture,
       role: user.role,
@@ -49,7 +58,9 @@ const googleOauth = async ({ credential }) => {
 
 const register = async ({ name, username, password }) => {
   const isExist = await userModel.findOne({ username })
-  if (isExist) throw new MyError('Tên đăng nhập đã tồn tại', 409)
+
+  if (isExist) throw new HttpError(authErrors.USERNAME_ALREADY_EXISTS)
+
   const hashedPassword = await bcrypt.hash(password, 10)
   const user = new userModel({
     name,
@@ -62,10 +73,10 @@ const register = async ({ name, username, password }) => {
 const login = async ({ username, password }) => {
   const user = await userModel.findOne({ username })
 
-  if (!user) throw new MyError('Tên đăng nhập không tồn tại', 401)
+  if (!user) throw new HttpError(authErrors.USERNAME_NOT_FOUND)
 
   const isMatch = await bcrypt.compare(password, user.password)
-  if (!isMatch) throw new MyError('Sai mật khẩu', 401)
+  if (!isMatch) throw new HttpError(authErrors.INVALID_PASSWORD)
 
   const accessToken = jwt.sign({ id: user.id }, env.ACCESS_TOKEN_SECRET, {
     expiresIn: '15m',
@@ -78,7 +89,7 @@ const login = async ({ username, password }) => {
     accessToken,
     refreshToken,
     user: {
-      id: user._id.toString(),
+      id: user.id,
       name: user.name,
       picture: user.picture,
       role: user.role,
@@ -87,18 +98,17 @@ const login = async ({ username, password }) => {
 }
 
 const refreshToken = async (refreshToken) => {
-  if (!refreshToken)
-    throw new MyError('Bạn chưa đăng nhập', 401, 'Không có refresh token')
+  if (!refreshToken) throw new HttpError(authErrors.REFRESH_TOKEN_REQUIRED)
 
   let decoded
   try {
     decoded = jwt.verify(refreshToken, env.REFRESH_TOKEN_SECRET)
   } catch (err) {
-    throw new MyError('Hết phiên đăng nhập', 403, 'Refresh token đã hết hạn')
+    throw new HttpError(authErrors.INVALID_REFRESH_TOKEN)
   }
 
   const user = await userModel.findById(decoded.id)
-  if (!user) throw new MyError('Tài khoản không tồn tại', 404)
+  if (!user) throw new HttpError(authErrors.USERNAME_NOT_FOUND)
 
   return jwt.sign({ id: user._id }, env.ACCESS_TOKEN_SECRET, {
     expiresIn: '15m',

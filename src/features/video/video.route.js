@@ -20,5 +20,14 @@ videoRoute.get(
   validate({ params: videoSchema.getVideo }),
   videoController.getVideo,
 )
+videoRoute.patch(
+  '/:videoId/segment/:segmentId',
+  passportJWT,
+  validate({
+    params: videoSchema.editSegmentParams,
+    body: videoSchema.editSegmentBody,
+  }),
+  videoController.editSegment,
+)
 
 export default videoRoute

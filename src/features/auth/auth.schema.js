@@ -1,36 +1,26 @@
 import Joi from 'joi'
 
 const googleOauth = Joi.object({
-  credential: Joi.string().required().messages({
-    'any.required': 'Thông tin xác thực là bắt buộc',
-    'string.empty': 'Thông tin xác thực không được để trống',
-  }),
+  credential: Joi.string().required(),
 })
 
 const register = Joi.object({
-  name: Joi.string().required().messages({
-    'any.required': 'Tên là bắt buộc',
-    'string.empty': 'Tên không được để trống',
-  }),
-  username: Joi.string().required().messages({
-    'any.required': 'Tên người dùng là bắt buộc',
-    'string.empty': 'Tên người dùng không được để trống',
-  }),
-  password: Joi.string().required().messages({
-    'any.required': 'Mật khẩu là bắt buộc',
-    'string.empty': 'Mật khẩu không được để trống',
-  }),
+  name: Joi.string().required(),
+  username: Joi.string().min(6).alphanum().required(), // Username must be at least 6 characters, only letters and numbers
+  password: Joi.string()
+    .min(6)
+    .pattern(/[a-zA-Z]/)
+    .pattern(/[0-9]/)
+    .required(), // Password must be at least 6 characters and contain both letters and numbers
 })
 
 const login = Joi.object({
-  username: Joi.string().required().messages({
-    'any.required': 'Tên người dùng là bắt buộc',
-    'string.empty': 'Tên người dùng không được để trống',
-  }),
-  password: Joi.string().required().messages({
-    'any.required': 'Mật khẩu là bắt buộc',
-    'string.empty': 'Mật khẩu không được để trống',
-  }),
+  username: Joi.string().min(6).alphanum().required(), // Username must be at least 6 characters, only letters and numbers
+  password: Joi.string()
+    .min(6)
+    .pattern(/[a-zA-Z]/)
+    .pattern(/[0-9]/)
+    .required(), // Password must be at least 6 characters and contain both letters and numbers
 })
 
 const authSchema = {

@@ -1,24 +1,3 @@
-const extractYoutubeId = (url) => {
-  try {
-    const parsedUrl = new URL(url)
-
-    if (parsedUrl.hostname === 'youtu.be') {
-      return parsedUrl.pathname.slice(1)
-    }
-
-    if (
-      parsedUrl.hostname === 'www.youtube.com' ||
-      parsedUrl.hostname === 'youtube.com'
-    ) {
-      return parsedUrl.searchParams.get('v')
-    }
-
-    return null
-  } catch (error) {
-    return null
-  }
-}
-
 const parseTime = (str) => {
   const [h, m, s] = str.split(':')
   const [sec, ms = '0'] = s.split('.')
@@ -31,7 +10,6 @@ const parseTime = (str) => {
 }
 
 const videoUtil = {
-  extractYoutubeId,
   parseTime,
 }
 

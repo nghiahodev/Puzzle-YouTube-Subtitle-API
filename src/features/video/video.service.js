@@ -1,41 +1,47 @@
 import videoModel from '~/models/video.model'
 import videoUtil from './video.util'
-import MyError from '~/common/MyError'
 import { isEmpty } from 'lodash'
 import axios from 'axios'
 import { spawn } from 'child_process'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import env from '~/config/env'
+import HttpError from '~/common/utils/HttpError'
+import errors from '~/common/errors'
+import videoErrors from './video.error'
 
 const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY)
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
 const geminiTranslate = async (textToTranslate) => {
-  const prompt = `Translate the following into Vietnamese. Do not change or remove the "§" symbols. Only translate the text between them:\n\n${textToTranslate}`
+  const prompt = `Translate the following text into Vietnamese. Each line is separated by a newline (\n). Do not merge or remove any lines. Only translate the text on each line individually, and preserve the line order and count exactly:\n\n${textToTranslate}`
   try {
     const { response } = await model.generateContent(prompt)
     return response.text().trim()
   } catch (error) {
-    throw new MyError(null, null, 'Gemini không hoạt động')
+    throw new HttpError(errors.SERVER_ERROR)
   }
 }
 const geminiSummary = async (textToSummary) => {
-  const prompt = `Summarize the following text into a short paragraph in Vietnamese (no more than 100 words) that explains the content. Insert important English words by enclosing them in double quotes ("") without explaining them:\n\n${textToSummary}`
+  const prompt = `Summarize the following text into a short paragraph in Vietnamese (no more than 100 words) that explains the content:\n\n${textToSummary}`
   try {
     const { response } = await model.generateContent(prompt)
     return response.text().trim()
   } catch (error) {
-    throw new MyError(null, null, 'Gemini không hoạt động')
+    throw new HttpError(errors.SERVER_ERROR)
   }
 }
 
-const ytdlpExec = (youtubeId, timeoutMs = 10000) => {
+const ytdlpExec = (youtubeId, timeoutMs = 30000) => {
   return new Promise((resolve, reject) => {
     const ytdlp = spawn('yt-dlp', [
       '--skip-download',
       '--print-json',
       '--quiet',
       '--no-warnings',
+      '--no-check-certificate',
+      '--no-call-home',
+      '--no-playlist',
+      '--no-check-format',
       youtubeId,
     ])
 
@@ -45,7 +51,7 @@ const ytdlpExec = (youtubeId, timeoutMs = 10000) => {
     const timeout = setTimeout(() => {
       if (!hasExited) {
         ytdlp.kill('SIGKILL')
-        const error = new Error(`TIMEOUT ${timeoutMs}ms`)
+        const error = new Error()
         error.code = 'TIMEOUT'
         reject(error)
       }
@@ -79,22 +85,16 @@ const ytdlpExec = (youtubeId, timeoutMs = 10000) => {
 
 const fetchVideo = async (youtubeId) => {
   try {
-    return await ytdlpExec(youtubeId, 20000)
+    return await ytdlpExec(youtubeId)
   } catch (error) {
-    if (error.code === 'TIMEOUT')
-      throw new MyError(
-        'Hệ thống đang phản hồi chậm, vui lòng thử lại sau',
-        504,
-        error.message,
-      )
-    else throw new MyError('Video không có sẵn, vui lòng chọn video khác', 400)
+    if (error.code === 'TIMEOUT') throw new HttpError(errors.TIMEOUT_ERROR)
+    else throw new HttpError(videoErrors.YOUTUBE_VIDEO_NOT_FOUND)
   }
 }
 
-const addVideo = async ({ youtubeUrl }, user) => {
-  const youtubeId = videoUtil.extractYoutubeId(youtubeUrl)
+const addVideo = async ({ youtubeId }, user) => {
   const videoExists = await videoModel.findOne({ youtubeId })
-  if (videoExists) throw new MyError('Video đã tồn tại', 400)
+  if (videoExists) throw new HttpError(videoErrors.VIDEO_ALREADY_EXISTS)
 
   const {
     id,
@@ -119,27 +119,16 @@ const addVideo = async ({ youtubeUrl }, user) => {
   )?.[1]
 
   if (!enSubs || enSubs.length === 0) {
-    throw new MyError(
-      'Video không có phụ đề tiếng Anh, vui lòng chọn video khác',
-      400,
-    )
+    throw new HttpError(videoErrors.ENGLISH_SUBTITLES_NOT_FOUND)
   }
 
   // handle with vttUrl
   const vttUrl = enSubs.find((sub) => sub.ext === 'vtt')?.url
-  if (!vttUrl)
-    throw new MyError(
-      'Video đang có lượt truy cập cao, vui lòng thử lại sau',
-      400,
-      'Không tìm thấy json3 URL',
-    )
+  if (!vttUrl) throw new HttpError(errors.CONNECTION_UNSTABLE)
+
   const { data } = await axios.get(vttUrl)
   if (isEmpty(data)) {
-    throw new MyError(
-      'Video đang có lượt truy cập cao, vui lòng thử lại sau',
-      400,
-      'Dữ liệu phụ đề trống',
-    )
+    throw new HttpError(errors.CONNECTION_UNSTABLE)
   }
 
   const validTexts = []
@@ -148,7 +137,6 @@ const addVideo = async ({ youtubeUrl }, user) => {
   let end = 0
   let collectingText = false
   let bufferText = ''
-
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim()
 
@@ -166,7 +154,9 @@ const addVideo = async ({ youtubeUrl }, user) => {
 
     if (collectingText) {
       if (line === '') {
-        const text = bufferText.replace(/(\(.*?\)|\[.*?\]|\*\*.*?\*\*)/g, '')
+        const text = bufferText
+          .replace(/(\(.*?\)|\[.*?\]|\*\*.*?\*\*)/g, '')
+          .replace(/\n/g, '')
 
         if (!/^[^a-zA-Z0-9]*$/.test(text)) {
           videoData.segments.push({ start, end, text })
@@ -229,12 +219,25 @@ const addVideo = async ({ youtubeUrl }, user) => {
   //   validTexts.push(text)
   // }
 
-  const translatedText = await geminiTranslate(validTexts.join('§'))
-  const translatedTextSplit = translatedText.split('§')
+  const translatedText = await geminiTranslate(validTexts.join('\n'))
+  const translatedTextSplit = translatedText.split('\n')
   if (translatedTextSplit.length !== validTexts.length)
-    throw new MyError(null, null, 'Gemini error')
+    throw new HttpError(errors.SERVER_ERROR, 'Translation using Gemini failed')
   const summary = await geminiSummary(validTexts.join(' '))
-  videoData.summary = summary
+  videoData.summary = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: [
+          {
+            type: 'text',
+            text: summary,
+          },
+        ],
+      },
+    ],
+  }
 
   translatedTextSplit.forEach((text, index) => {
     videoData.segments[index].translate = text
@@ -249,12 +252,51 @@ const addVideo = async ({ youtubeUrl }, user) => {
 const getVideoById = async (id) => {
   const video = await videoModel.findById(id)
   if (!video) {
-    throw new MyError('Video not found', 404)
+    throw new HttpError(videoErrors.VIDEO_NOT_FOUND)
   }
   return video
 }
+
+const editSegment = async ({ videoId, segmentId }, segmentData) => {
+  const video = await videoModel.findById(videoId, { segments: 1 })
+  if (!video) throw new HttpError(videoErrors.VIDEO_NOT_FOUND)
+
+  const index = video.segments.findIndex((s) => s.id === segmentId)
+  if (index === -1) throw new HttpError(videoErrors.SEGMENT_NOT_FOUND)
+
+  const prevSegment = video.segments[index - 1]
+  const nextSegment = video.segments[index + 1]
+
+  if (prevSegment && segmentData.start < prevSegment.end) {
+    throw new HttpError(
+      videoErrors.INVALID_START_TIME,
+      'Start must be greater than or equal to the End of the previous segment',
+    )
+  }
+  if (nextSegment && segmentData.end > nextSegment.start) {
+    throw new HttpError(
+      videoErrors.INVALID_END_TIME,
+      'End must be less than or equal to the Start of the next segment',
+    )
+  }
+
+  return await videoModel.updateOne(
+    { _id: videoId, 'segments._id': segmentId },
+    {
+      $set: {
+        'segments.$.start': segmentData.start,
+        'segments.$.end': segmentData.end,
+        'segments.$.text': segmentData.text,
+        'segments.$.translate': segmentData.translate,
+        'segments.$.note': segmentData.note,
+      },
+    },
+  )
+}
+
 const videoService = {
   addVideo,
   getVideoById,
+  editSegment,
 }
 export default videoService
